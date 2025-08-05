@@ -352,6 +352,92 @@ const themeConfig = {
     special: {
       artworkHover: 'linear-gradient(135deg, #4dd0e1, #fff176)'
     }
+  },
+
+  cosmic: {
+    name: 'Cosmic',
+    emoji: '🌌',
+    fonts: {
+      primary: "'Orbitron', 'Exo 2', 'Helvetica Neue', Arial, sans-serif"
+    },
+    colors: {
+      primary: '#0080ff',
+      secondary: '#8a2be2',
+      accent: '#c0c0c0',
+      background: 'radial-gradient(ellipse at center, #1a0033 0%, #000011 50%, #000000 100%)',
+      surface: 'rgba(26, 0, 51, 0.9)',
+      border: '#0080ff',
+      text: {
+        primary: '#ffffff',
+        secondary: '#c0c0c0',
+        inverse: '#000000'
+      }
+    },
+    container: {
+      minHeight: '100vh',
+      background: 'radial-gradient(ellipse at center, #1a0033 0%, #000011 50%, #000000 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '2rem',
+      position: 'relative',
+      overflow: 'hidden'
+    },
+    player: {
+      width: '100%',
+      maxWidth: '300px',
+      background: 'rgba(26, 0, 51, 0.95)',
+      border: '1px solid #0080ff',
+      boxShadow: '0 0 40px rgba(0, 128, 255, 0.4), 0 0 80px rgba(138, 43, 226, 0.2), inset 0 0 30px rgba(192, 192, 192, 0.05)',
+      borderRadius: '16px',
+      backdropFilter: 'blur(10px)',
+      position: 'relative'
+    },
+    header: {
+      padding: '1rem',
+      borderBottom: '1px solid rgba(0, 128, 255, 0.3)',
+      background: 'linear-gradient(135deg, rgba(0, 128, 255, 0.2) 0%, rgba(138, 43, 226, 0.2) 100%)',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderRadius: '16px 16px 0 0',
+      position: 'relative'
+    },
+    effects: {
+      sliderTrack: 'rgba(0, 128, 255, 0.2)',
+      sliderThumb: '#0080ff',
+      sliderHeight: '3px',
+      sliderThumbSize: '16px',
+      thumbBorder: '2px solid rgba(192, 192, 192, 0.8)',
+      thumbShadow: '0 0 15px rgba(0, 128, 255, 0.8), 0 0 30px rgba(0, 128, 255, 0.4)'
+    },
+    text: {
+      weight: '500',
+      shadow: '0 0 10px rgba(0, 128, 255, 0.6), 0 0 20px rgba(0, 128, 255, 0.3)'
+    },
+    backgroundPattern: {
+      backgroundImage: `
+        radial-gradient(circle at 10% 20%, rgba(0, 128, 255, 0.1) 0%, transparent 20%),
+        radial-gradient(circle at 80% 80%, rgba(138, 43, 226, 0.1) 0%, transparent 20%),
+        radial-gradient(circle at 40% 40%, rgba(192, 192, 192, 0.05) 0%, transparent 30%),
+        radial-gradient(1px 1px at 20px 30px, rgba(255, 255, 255, 0.8), transparent),
+        radial-gradient(1px 1px at 40px 70px, rgba(0, 128, 255, 0.6), transparent),
+        radial-gradient(1px 1px at 90px 40px, rgba(138, 43, 226, 0.4), transparent),
+        radial-gradient(1px 1px at 130px 80px, rgba(255, 255, 255, 0.6), transparent),
+        radial-gradient(2px 2px at 160px 30px, rgba(0, 128, 255, 0.3), transparent)
+      `,
+      backgroundSize: '200px 100px, 200px 100px, 200px 100px, 200px 100px, 200px 100px, 200px 100px, 200px 100px, 200px 100px',
+      animation: 'starfield 20s linear infinite'
+    },
+    visualizer: {
+      colors: ['#0080ff', '#8a2be2', '#c0c0c0', '#00ffff'],
+      shadows: ['0 0 12px #0080ff', '0 0 12px #8a2be2', '0 0 12px #c0c0c0', '0 0 12px #00ffff'],
+      borderRadius: '1px'
+    },
+    special: {
+      artworkHover: 'radial-gradient(ellipse at center, rgba(0, 128, 255, 0.3) 0%, rgba(138, 43, 226, 0.2) 100%)',
+      headerGlow: '0 0 20px rgba(0, 128, 255, 0.4)'
+    }
   }
 };
 
@@ -465,61 +551,65 @@ const SlowReverbApp = () => {
     }
   }, []);
   
-  // Initialize audio context (ORIGINAL with iOS fixes)
+  // Initialize audio context (ENHANCED with better iOS handling)
   const initAudioContext = async () => {
-    if (useHtml5Audio) {
-      // iOS: Use HTML5 audio with limited Web Audio API
-      try {
-        if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-          
-          // Simplified audio graph for iOS
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Try to set optimal sample rate for iOS
+        if (isIOSDevice && audioContextRef.current.sampleRate !== 44100) {
+          console.log('iOS: Non-optimal sample rate detected:', audioContextRef.current.sampleRate);
+        }
+        
+        if (useHtml5Audio) {
+          // iOS: Enhanced Web Audio API setup for better quality
           gainNodeRef.current = audioContextRef.current.createGain();
           analyserNodeRef.current = audioContextRef.current.createAnalyser();
           
-          // iOS-friendly analyzer settings
+          // iOS-optimized analyzer settings for better performance
+          analyserNodeRef.current.fftSize = 64;
+          analyserNodeRef.current.smoothingTimeConstant = 0.85;
+          analyserNodeRef.current.minDecibels = -90;
+          analyserNodeRef.current.maxDecibels = -10;
+          
+          gainNodeRef.current.gain.value = volume;
+        } else {
+          // Desktop: Full Web Audio API implementation
+          const impulseResponse = createReverbImpulse(audioContextRef.current, reverbRoomSize, reverbDecay);
+          
+          gainNodeRef.current = audioContextRef.current.createGain();
+          convolverNodeRef.current = audioContextRef.current.createConvolver();
+          wetGainRef.current = audioContextRef.current.createGain();
+          dryGainRef.current = audioContextRef.current.createGain();
+          filterNodeRef.current = audioContextRef.current.createBiquadFilter();
+          analyserNodeRef.current = audioContextRef.current.createAnalyser();
+          
+          convolverNodeRef.current.buffer = impulseResponse;
+          filterNodeRef.current.type = 'lowpass';
+          filterNodeRef.current.frequency.value = lowPassFilter;
+          
           analyserNodeRef.current.fftSize = 64;
           analyserNodeRef.current.smoothingTimeConstant = 0.8;
           
           gainNodeRef.current.gain.value = volume;
+          wetGainRef.current.gain.value = reverbWet;
+          dryGainRef.current.gain.value = 1 - reverbWet;
         }
-        
-        if (audioContextRef.current.state === 'suspended') {
-          await audioContextRef.current.resume();
-        }
-        
-        return true;
-      } catch (error) {
-        console.warn('iOS: Web Audio API limited, using HTML5 audio only');
-        setIosError('Advanced effects limited on iOS. Basic playback available.');
-        return false;
       }
-    } else {
-      // Original Web Audio API implementation
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-        
-        const impulseResponse = createReverbImpulse(audioContextRef.current, reverbRoomSize, reverbDecay);
-        
-        gainNodeRef.current = audioContextRef.current.createGain();
-        convolverNodeRef.current = audioContextRef.current.createConvolver();
-        wetGainRef.current = audioContextRef.current.createGain();
-        dryGainRef.current = audioContextRef.current.createGain();
-        filterNodeRef.current = audioContextRef.current.createBiquadFilter();
-        analyserNodeRef.current = audioContextRef.current.createAnalyser();
-        
-        convolverNodeRef.current.buffer = impulseResponse;
-        filterNodeRef.current.type = 'lowpass';
-        filterNodeRef.current.frequency.value = lowPassFilter;
-        
-        analyserNodeRef.current.fftSize = 64;
-        analyserNodeRef.current.smoothingTimeConstant = 0.8;
-        
-        gainNodeRef.current.gain.value = volume;
-        wetGainRef.current.gain.value = reverbWet;
-        dryGainRef.current.gain.value = 1 - reverbWet;
+      
+      // Always try to resume context
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
       }
+      
       return true;
+    } catch (error) {
+      console.error('Audio context initialization error:', error);
+      if (isIOSDevice) {
+        setIosError('Audio setup failed. Please refresh and try again.');
+      }
+      return false;
     }
   };
   
@@ -592,7 +682,7 @@ const SlowReverbApp = () => {
     return impulse;
   };
   
-  // Handle file upload (ENHANCED for iOS)
+  // Handle file upload (ENHANCED with better iOS audio handling)
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (file && file.type.startsWith('audio/')) {
@@ -607,47 +697,79 @@ const SlowReverbApp = () => {
       setIosError('');
       
       try {
-        await initAudioContext();
+        const contextReady = await initAudioContext();
+        if (!contextReady) {
+          throw new Error('Audio context initialization failed');
+        }
         
         if (useHtml5Audio) {
-          // iOS: Use HTML5 audio element
-          if (audioElementRef.current) {
-            audioElementRef.current.pause();
-          }
-          
-          audioElementRef.current = new Audio();
-          audioElementRef.current.preload = 'metadata';
-          
-          const objectURL = URL.createObjectURL(file);
-          audioElementRef.current.src = objectURL;
-          
-          audioElementRef.current.onloadedmetadata = () => {
-            setDuration(audioElementRef.current.duration);
+          // iOS: Try Web Audio API first for better quality, fallback to HTML5
+          try {
+            // Attempt to use Web Audio API for iOS with better quality
+            const arrayBuffer = await file.arrayBuffer();
+            const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+            
+            // Store the decoded buffer for high-quality playback
+            audioBufferRef.current = audioBuffer;
+            setDuration(audioBuffer.duration);
             setCurrentTime(0);
             pauseTimeRef.current = 0;
             
-            // Try to connect to Web Audio API for visualizer
-            if (audioContextRef.current && !sourceNodeRef.current) {
-              try {
-                sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audioElementRef.current);
-                sourceNodeRef.current.connect(gainNodeRef.current);
-                gainNodeRef.current.connect(analyserNodeRef.current);
-                gainNodeRef.current.connect(audioContextRef.current.destination);
-              } catch (error) {
-                console.warn('iOS: Limited Web Audio API connection');
-              }
+            // Switch to Web Audio API mode for better quality
+            setUseHtml5Audio(false);
+            setIosError('High-quality mode enabled! All effects available.');
+            setIsLoading(false);
+            
+          } catch (decodeError) {
+            console.warn('iOS: Web Audio decode failed, falling back to HTML5:', decodeError);
+            
+            // Fallback to HTML5 audio
+            if (audioElementRef.current) {
+              audioElementRef.current.pause();
             }
-            setIsLoading(false);
-          };
-          
-          audioElementRef.current.onerror = () => {
-            setIosError('Failed to load audio file. Try MP3 or AAC format.');
-            setIsLoading(false);
-          };
-          
-          audioElementRef.current.load();
+            
+            audioElementRef.current = new Audio();
+            audioElementRef.current.preload = 'metadata';
+            
+            // Set audio element properties for better quality
+            audioElementRef.current.preservesPitch = false; // Better for speed changes
+            
+            const objectURL = URL.createObjectURL(file);
+            audioElementRef.current.src = objectURL;
+            
+            audioElementRef.current.onloadedmetadata = () => {
+              setDuration(audioElementRef.current.duration);
+              setCurrentTime(0);
+              pauseTimeRef.current = 0;
+              
+              // Try to connect to Web Audio API for visualizer and volume control
+              if (audioContextRef.current && !sourceNodeRef.current) {
+                try {
+                  sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audioElementRef.current);
+                  sourceNodeRef.current.connect(gainNodeRef.current);
+                  gainNodeRef.current.connect(analyserNodeRef.current);
+                  gainNodeRef.current.connect(audioContextRef.current.destination);
+                  setIosError('iOS mode: Speed and volume available. Reverb/Filter limited.');
+                } catch (error) {
+                  console.warn('iOS: Limited Web Audio API connection');
+                  setIosError('iOS mode: Basic playback only. Some effects limited.');
+                }
+              }
+              setIsLoading(false);
+            };
+            
+            audioElementRef.current.onerror = (error) => {
+              console.error('HTML5 audio error:', error);
+              setIosError('Failed to load audio file. Try MP3 or AAC format.');
+              setIsLoading(false);
+            };
+            
+            // Set better quality settings
+            audioElementRef.current.crossOrigin = 'anonymous';
+            audioElementRef.current.load();
+          }
         } else {
-          // Original Web Audio API implementation
+          // Desktop: Original Web Audio API implementation
           const arrayBuffer = await file.arrayBuffer();
           const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
           audioBufferRef.current = audioBuffer;
@@ -658,7 +780,7 @@ const SlowReverbApp = () => {
         }
       } catch (error) {
         console.error('Error loading audio file:', error);
-        setIosError('Error loading audio file. Please try a different file.');
+        setIosError('Error loading audio file. Please try a different file or format.');
         setIsLoading(false);
       }
     }
@@ -703,51 +825,80 @@ const SlowReverbApp = () => {
     }
   }, [playbackRate, duration, useHtml5Audio]);
   
-  // Play audio (ENHANCED for iOS)
+  // Play audio (ENHANCED with better iOS quality)
   const playAudio = async () => {
     if (useHtml5Audio && audioElementRef.current) {
-      // iOS: HTML5 audio playback
+      // iOS: Enhanced HTML5 audio playback
       try {
+        // Ensure audio context is running
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
           await audioContextRef.current.resume();
         }
         
-        audioElementRef.current.playbackRate = playbackRate;
-        audioElementRef.current.volume = volume;
+        // For iOS: Set playback rate more carefully to reduce artifacts
+        if (isIOSDevice) {
+          // Clamp playback rate to iOS-friendly range
+          const clampedRate = Math.max(0.5, Math.min(2.0, playbackRate));
+          if (clampedRate !== playbackRate) {
+            setIosError(`Playback rate adjusted to ${clampedRate.toFixed(1)}x for iOS compatibility.`);
+          }
+          audioElementRef.current.playbackRate = clampedRate;
+        } else {
+          audioElementRef.current.playbackRate = playbackRate;
+        }
+        
+        // Set volume through Web Audio API if available for better quality
+        if (gainNodeRef.current) {
+          gainNodeRef.current.gain.value = volume;
+          audioElementRef.current.volume = 1.0; // Let Web Audio handle volume
+        } else {
+          audioElementRef.current.volume = volume;
+        }
         
         await audioElementRef.current.play();
         setIsPlaying(true);
+        setIosError('');
+        
       } catch (error) {
+        console.error('iOS playback error:', error);
         setIosError('Playback failed. Tap the screen first to enable audio.');
       }
     } else if (audioBufferRef.current && audioContextRef.current) {
-      // Original Web Audio API playback
-      if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
+      // Web Audio API playback (desktop or iOS high-quality mode)
+      try {
+        if (audioContextRef.current.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
+        
+        if (sourceNodeRef.current) {
+          sourceNodeRef.current.stop();
+          sourceNodeRef.current.disconnect();
+        }
+        
+        sourceNodeRef.current = audioContextRef.current.createBufferSource();
+        sourceNodeRef.current.buffer = audioBufferRef.current;
+        sourceNodeRef.current.playbackRate.value = playbackRate;
+        
+        // Enhanced connection for better quality on iOS
+        connectNodes(sourceNodeRef.current);
+        
+        const offset = pauseTimeRef.current;
+        sourceNodeRef.current.start(0, offset);
+        startTimeRef.current = audioContextRef.current.currentTime - offset / playbackRate;
+        
+        sourceNodeRef.current.onended = () => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+          pauseTimeRef.current = 0;
+        };
+        
+        setIsPlaying(true);
+        setIosError('');
+        
+      } catch (error) {
+        console.error('Web Audio playback error:', error);
+        setIosError('Playback failed. Please try reloading the file.');
       }
-      
-      if (sourceNodeRef.current) {
-        sourceNodeRef.current.stop();
-        sourceNodeRef.current.disconnect();
-      }
-      
-      sourceNodeRef.current = audioContextRef.current.createBufferSource();
-      sourceNodeRef.current.buffer = audioBufferRef.current;
-      sourceNodeRef.current.playbackRate.value = playbackRate;
-      
-      connectNodes(sourceNodeRef.current);
-      
-      const offset = pauseTimeRef.current;
-      sourceNodeRef.current.start(0, offset);
-      startTimeRef.current = audioContextRef.current.currentTime - offset / playbackRate;
-      
-      sourceNodeRef.current.onended = () => {
-        setIsPlaying(false);
-        setCurrentTime(0);
-        pauseTimeRef.current = 0;
-      };
-      
-      setIsPlaying(true);
     }
   };
   
@@ -1051,7 +1202,8 @@ const SlowReverbApp = () => {
             background: currentTheme === 'vaporwave' ? 'linear-gradient(45deg, #3a0ca3, #7209b7)' : 
                        currentTheme === 'pixel' ? '#0f3460' : 
                        currentTheme === 'dark' ? 'linear-gradient(135deg, #1a1a1a, #0a0a0a)' : 
-                       currentTheme === 'tropical' ? 'linear-gradient(135deg, #40e0d0, #ffd700)' : '#f0f0f0',
+                       currentTheme === 'tropical' ? 'linear-gradient(135deg, #40e0d0, #ffd700)' : 
+                       currentTheme === 'cosmic' ? 'radial-gradient(ellipse at center, rgba(0, 128, 255, 0.3) 0%, rgba(138, 43, 226, 0.2) 50%, rgba(0, 0, 0, 0.8) 100%)' : '#f0f0f0',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1059,10 +1211,33 @@ const SlowReverbApp = () => {
             padding: '1rem',
             cursor: !audioFile ? 'pointer' : 'default',
             transition: 'all 0.2s',
-            imageRendering: theme.special?.imageRendering
+            imageRendering: theme.special?.imageRendering,
+            position: 'relative',
+            overflow: 'hidden'
           }}
           onClick={!audioFile ? () => fileInputRef.current?.click() : undefined}
           >
+            {/* Cosmic theme: Add floating stars */}
+            {currentTheme === 'cosmic' && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundImage: `
+                  radial-gradient(1px 1px at 15% 25%, rgba(255, 255, 255, 0.9), transparent),
+                  radial-gradient(1px 1px at 85% 15%, rgba(0, 128, 255, 0.8), transparent),
+                  radial-gradient(1px 1px at 70% 70%, rgba(138, 43, 226, 0.6), transparent),
+                  radial-gradient(1px 1px at 30% 80%, rgba(255, 255, 255, 0.7), transparent),
+                  radial-gradient(2px 2px at 60% 30%, rgba(0, 255, 255, 0.5), transparent)
+                `,
+                backgroundSize: '100% 100%',
+                animation: 'twinkle 3s ease-in-out infinite alternate',
+                pointerEvents: 'none'
+              }} />
+            )}
+            
             {isPlaying ? (
               <div style={{
                 display: 'flex',
@@ -1070,7 +1245,8 @@ const SlowReverbApp = () => {
                 justifyContent: 'center',
                 gap: theme.visualizer?.gap || '2px',
                 height: '60px',
-                width: '100%'
+                width: '100%',
+                zIndex: 2
               }}>
                 {visualizerData.slice(0, 16).map((height, index) => (
                   <div
@@ -1090,7 +1266,8 @@ const SlowReverbApp = () => {
             ) : !audioFile ? (
               <div style={{
                 textAlign: 'center',
-                color: theme.colors.text.secondary
+                color: theme.colors.text.secondary,
+                zIndex: 2
               }}>
                 <Upload size={24} style={{ marginBottom: '0.5rem' }} />
                 <div style={{
@@ -1099,7 +1276,7 @@ const SlowReverbApp = () => {
                   letterSpacing: '0.1em',
                   fontWeight: theme.text.weight
                 }}>
-                  {currentTheme === 'pixel' ? 'LOAD FILE' : 'Click to Upload'}
+                  {currentTheme === 'pixel' ? 'LOAD FILE' : currentTheme === 'cosmic' ? 'Upload Audio' : 'Click to Upload'}
                 </div>
               </div>
             ) : (
@@ -1109,7 +1286,8 @@ const SlowReverbApp = () => {
                 background: currentTheme === 'vaporwave' ? 'rgba(0, 245, 255, 0.3)' : 
                            currentTheme === 'pixel' ? '#e94560' : 
                            currentTheme === 'dark' ? 'rgba(0, 255, 127, 0.3)' : 
-                           currentTheme === 'tropical' ? 'rgba(255, 255, 255, 0.3)' : '#ddd',
+                           currentTheme === 'tropical' ? 'rgba(255, 255, 255, 0.3)' : 
+                           currentTheme === 'cosmic' ? 'rgba(0, 128, 255, 0.4)' : '#ddd',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1117,9 +1295,11 @@ const SlowReverbApp = () => {
                 fontSize: '24px',
                 fontWeight: theme.text.weight,
                 imageRendering: theme.special?.imageRendering,
-                borderRadius: currentTheme === 'tropical' ? '12px' : '0'
+                borderRadius: currentTheme === 'tropical' ? '12px' : currentTheme === 'cosmic' ? '8px' : '0',
+                zIndex: 2,
+                boxShadow: currentTheme === 'cosmic' ? '0 0 20px rgba(0, 128, 255, 0.4)' : 'none'
               }}>
-                {currentTheme === 'pixel' ? '♫' : currentTheme === 'tropical' ? '🎵' : '♪'}
+                {currentTheme === 'pixel' ? '♫' : currentTheme === 'tropical' ? '🎵' : currentTheme === 'cosmic' ? '🌟' : '♪'}
               </div>
             )}
           </div>
@@ -1450,28 +1630,44 @@ const SlowReverbApp = () => {
         </div>
       </div>
 
-      {/* iOS Tips */}
-      {isIOSDevice && (
-        <div style={{
-          position: 'absolute',
-          bottom: '-8rem',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '100%',
-          maxWidth: '300px',
-          padding: '0.75rem',
-          background: theme.colors.surface,
-          border: `1px solid ${theme.colors.border}`,
-          borderRadius: currentTheme === 'tropical' ? '12px' : currentTheme === 'dark' ? '8px' : '4px',
-          fontSize: '0.625rem',
-          color: theme.colors.text.secondary,
-          lineHeight: '1.3',
-          textAlign: 'center'
-        }}>
-          <strong>iOS Mode:</strong> Using simplified audio processing for compatibility. 
-          Some effects may be limited. Use Safari for best results.
-        </div>
-      )}
+        {/* iOS Tips */}
+        {isIOSDevice && (
+          <div style={{
+            position: 'absolute',
+            bottom: '-10rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '100%',
+            maxWidth: '300px',
+            padding: '0.75rem',
+            background: theme.colors.surface,
+            border: `1px solid ${theme.colors.border}`,
+            borderRadius: currentTheme === 'tropical' ? '12px' : currentTheme === 'dark' ? '8px' : '4px',
+            fontSize: '0.625rem',
+            color: theme.colors.text.secondary,
+            lineHeight: '1.3',
+            textAlign: 'left'
+          }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '0.5rem', color: theme.colors.text.primary }}>
+              📱 iOS Audio Tips:
+            </div>
+            <div style={{ marginBottom: '0.25rem' }}>
+              • <strong>For best quality:</strong> Use Safari browser
+            </div>
+            <div style={{ marginBottom: '0.25rem' }}>
+              • <strong>Avoid choppy audio:</strong> Try MP3/AAC files under 25MB
+            </div>
+            <div style={{ marginBottom: '0.25rem' }}>
+              • <strong>Speed range:</strong> 0.5x - 2.0x works best on iOS
+            </div>
+            <div style={{ marginBottom: '0.25rem' }}>
+              • <strong>Files from Photos app</strong> work better than Files app
+            </div>
+            <div>
+              • <strong>First tap anywhere</strong> to enable high-quality audio
+            </div>
+          </div>
+        )}
 
       <style>{`
         .player-2__control-btn:hover:not(:disabled) {
@@ -1552,6 +1748,23 @@ const SlowReverbApp = () => {
             appearance: none;
           }
         }
+        
+        /* Cosmic theme animations */
+        @keyframes starfield {
+          0% { transform: translateY(0); }
+          100% { transform: translateY(-200px); }
+        }
+        
+        @keyframes twinkle {
+          0% { opacity: 0.3; }
+          100% { opacity: 1; }
+        }
+        
+        ${currentTheme === 'cosmic' ? `
+        .player-2__header {
+          box-shadow: ${theme.special?.headerGlow} !important;
+        }
+        ` : ''}
         
         ${currentTheme === 'pixel' ? `
         * {
