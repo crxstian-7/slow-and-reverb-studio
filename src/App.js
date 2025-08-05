@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Play, Pause, Upload, RotateCcw, Download } from 'lucide-react';
+import { Play, Pause, Upload, RotateCcw, Download, AlertCircle } from 'lucide-react';
 
-// Theme Configuration Object
+// Theme Configuration Object (ORIGINAL)
 const themeConfig = {
   default: {
     name: 'Default',
@@ -355,7 +355,7 @@ const themeConfig = {
   }
 };
 
-// Theme presets for audio effects
+// Theme presets for audio effects (ORIGINAL)
 const effectPresets = {
   bedroom: {
     playbackRate: 0.8,
@@ -387,7 +387,7 @@ const effectPresets = {
   }
 };
 
-// Custom hook for theme management
+// Custom hook for theme management (ORIGINAL)
 const useTheme = (initialTheme = 'default') => {
   const [currentTheme, setCurrentTheme] = useState(initialTheme);
   
@@ -407,6 +407,12 @@ const useTheme = (initialTheme = 'default') => {
   };
 };
 
+// iOS Detection
+const isIOS = () => {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
 const SlowReverbApp = () => {
   const { theme, currentTheme, cycleTheme } = useTheme('default');
   
@@ -415,11 +421,13 @@ const SlowReverbApp = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isIOSDevice, setIsIOSDevice] = useState(false);
+  const [iosError, setIosError] = useState('');
   
-  // Visualizer state
+  // Visualizer state (ORIGINAL)
   const [visualizerData, setVisualizerData] = useState(Array(32).fill(0));
   
-  // Effect parameters
+  // Effect parameters (ORIGINAL)
   const [playbackRate, setPlaybackRate] = useState(0.8);
   const [reverbRoomSize, setReverbRoomSize] = useState(0.7);
   const [reverbDecay, setReverbDecay] = useState(2.5);
@@ -427,7 +435,7 @@ const SlowReverbApp = () => {
   const [volume, setVolume] = useState(0.8);
   const [lowPassFilter, setLowPassFilter] = useState(8000);
   
-  // Audio context and nodes
+  // Audio context and nodes (ORIGINAL with iOS compatibility)
   const audioContextRef = useRef(null);
   const sourceNodeRef = useRef(null);
   const gainNodeRef = useRef(null);
@@ -438,39 +446,84 @@ const SlowReverbApp = () => {
   const audioBufferRef = useRef(null);
   const analyserNodeRef = useRef(null);
   
+  // iOS compatibility: Add HTML5 audio element as fallback
+  const audioElementRef = useRef(null);
+  const [useHtml5Audio, setUseHtml5Audio] = useState(false);
+  
   const fileInputRef = useRef(null);
   const startTimeRef = useRef(0);
   const pauseTimeRef = useRef(0);
   const animationFrameRef = useRef(null);
   
-  // Initialize audio context
+  // Detect iOS on mount
+  useEffect(() => {
+    const ios = isIOS();
+    setIsIOSDevice(ios);
+    // Force HTML5 audio on iOS for better compatibility
+    if (ios) {
+      setUseHtml5Audio(true);
+    }
+  }, []);
+  
+  // Initialize audio context (ORIGINAL with iOS fixes)
   const initAudioContext = async () => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      
-      const impulseResponse = createReverbImpulse(audioContextRef.current, reverbRoomSize, reverbDecay);
-      
-      gainNodeRef.current = audioContextRef.current.createGain();
-      convolverNodeRef.current = audioContextRef.current.createConvolver();
-      wetGainRef.current = audioContextRef.current.createGain();
-      dryGainRef.current = audioContextRef.current.createGain();
-      filterNodeRef.current = audioContextRef.current.createBiquadFilter();
-      analyserNodeRef.current = audioContextRef.current.createAnalyser();
-      
-      convolverNodeRef.current.buffer = impulseResponse;
-      filterNodeRef.current.type = 'lowpass';
-      filterNodeRef.current.frequency.value = lowPassFilter;
-      
-      analyserNodeRef.current.fftSize = 64;
-      analyserNodeRef.current.smoothingTimeConstant = 0.8;
-      
-      gainNodeRef.current.gain.value = volume;
-      wetGainRef.current.gain.value = reverbWet;
-      dryGainRef.current.gain.value = 1 - reverbWet;
+    if (useHtml5Audio) {
+      // iOS: Use HTML5 audio with limited Web Audio API
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+          
+          // Simplified audio graph for iOS
+          gainNodeRef.current = audioContextRef.current.createGain();
+          analyserNodeRef.current = audioContextRef.current.createAnalyser();
+          
+          // iOS-friendly analyzer settings
+          analyserNodeRef.current.fftSize = 64;
+          analyserNodeRef.current.smoothingTimeConstant = 0.8;
+          
+          gainNodeRef.current.gain.value = volume;
+        }
+        
+        if (audioContextRef.current.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
+        
+        return true;
+      } catch (error) {
+        console.warn('iOS: Web Audio API limited, using HTML5 audio only');
+        setIosError('Advanced effects limited on iOS. Basic playback available.');
+        return false;
+      }
+    } else {
+      // Original Web Audio API implementation
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        
+        const impulseResponse = createReverbImpulse(audioContextRef.current, reverbRoomSize, reverbDecay);
+        
+        gainNodeRef.current = audioContextRef.current.createGain();
+        convolverNodeRef.current = audioContextRef.current.createConvolver();
+        wetGainRef.current = audioContextRef.current.createGain();
+        dryGainRef.current = audioContextRef.current.createGain();
+        filterNodeRef.current = audioContextRef.current.createBiquadFilter();
+        analyserNodeRef.current = audioContextRef.current.createAnalyser();
+        
+        convolverNodeRef.current.buffer = impulseResponse;
+        filterNodeRef.current.type = 'lowpass';
+        filterNodeRef.current.frequency.value = lowPassFilter;
+        
+        analyserNodeRef.current.fftSize = 64;
+        analyserNodeRef.current.smoothingTimeConstant = 0.8;
+        
+        gainNodeRef.current.gain.value = volume;
+        wetGainRef.current.gain.value = reverbWet;
+        dryGainRef.current.gain.value = 1 - reverbWet;
+      }
+      return true;
     }
   };
   
-  // Update visualizer
+  // Update visualizer (ORIGINAL)
   const updateVisualizer = useCallback(() => {
     if (!analyserNodeRef.current || !isPlaying) {
       setVisualizerData(Array(32).fill(2));
@@ -505,7 +558,7 @@ const SlowReverbApp = () => {
     }
   }, [isPlaying]);
   
-  // Start visualizer animation
+  // Start visualizer animation (ORIGINAL)
   useEffect(() => {
     if (isPlaying) {
       updateVisualizer();
@@ -523,7 +576,7 @@ const SlowReverbApp = () => {
     };
   }, [isPlaying, updateVisualizer]);
   
-  // Create reverb impulse response
+  // Create reverb impulse response (ORIGINAL)
   const createReverbImpulse = (audioContext, roomSize, decay) => {
     const length = audioContext.sampleRate * decay;
     const impulse = audioContext.createBuffer(2, length, audioContext.sampleRate);
@@ -539,45 +592,106 @@ const SlowReverbApp = () => {
     return impulse;
   };
   
-  // Handle file upload
+  // Handle file upload (ENHANCED for iOS)
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (file && file.type.startsWith('audio/')) {
+      // iOS: Check file size limit
+      if (isIOSDevice && file.size > 50 * 1024 * 1024) {
+        setIosError('File too large for iOS. Please use files under 50MB.');
+        return;
+      }
+      
       setIsLoading(true);
       setAudioFile(file);
+      setIosError('');
       
       try {
         await initAudioContext();
-        const arrayBuffer = await file.arrayBuffer();
-        const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-        audioBufferRef.current = audioBuffer;
-        setDuration(audioBuffer.duration);
-        setCurrentTime(0);
-        pauseTimeRef.current = 0;
+        
+        if (useHtml5Audio) {
+          // iOS: Use HTML5 audio element
+          if (audioElementRef.current) {
+            audioElementRef.current.pause();
+          }
+          
+          audioElementRef.current = new Audio();
+          audioElementRef.current.preload = 'metadata';
+          
+          const objectURL = URL.createObjectURL(file);
+          audioElementRef.current.src = objectURL;
+          
+          audioElementRef.current.onloadedmetadata = () => {
+            setDuration(audioElementRef.current.duration);
+            setCurrentTime(0);
+            pauseTimeRef.current = 0;
+            
+            // Try to connect to Web Audio API for visualizer
+            if (audioContextRef.current && !sourceNodeRef.current) {
+              try {
+                sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audioElementRef.current);
+                sourceNodeRef.current.connect(gainNodeRef.current);
+                gainNodeRef.current.connect(analyserNodeRef.current);
+                gainNodeRef.current.connect(audioContextRef.current.destination);
+              } catch (error) {
+                console.warn('iOS: Limited Web Audio API connection');
+              }
+            }
+            setIsLoading(false);
+          };
+          
+          audioElementRef.current.onerror = () => {
+            setIosError('Failed to load audio file. Try MP3 or AAC format.');
+            setIsLoading(false);
+          };
+          
+          audioElementRef.current.load();
+        } else {
+          // Original Web Audio API implementation
+          const arrayBuffer = await file.arrayBuffer();
+          const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+          audioBufferRef.current = audioBuffer;
+          setDuration(audioBuffer.duration);
+          setCurrentTime(0);
+          pauseTimeRef.current = 0;
+          setIsLoading(false);
+        }
       } catch (error) {
         console.error('Error loading audio file:', error);
-        alert('Error loading audio file. Please try a different file.');
-      } finally {
+        setIosError('Error loading audio file. Please try a different file.');
         setIsLoading(false);
       }
     }
   };
   
-  // Connect audio nodes
+  // Connect audio nodes (ORIGINAL)
   const connectNodes = (sourceNode) => {
-    sourceNode.connect(filterNodeRef.current);
-    filterNodeRef.current.connect(gainNodeRef.current);
-    gainNodeRef.current.connect(analyserNodeRef.current);
-    gainNodeRef.current.connect(dryGainRef.current);
-    dryGainRef.current.connect(audioContextRef.current.destination);
-    gainNodeRef.current.connect(convolverNodeRef.current);
-    convolverNodeRef.current.connect(wetGainRef.current);
-    wetGainRef.current.connect(audioContextRef.current.destination);
+    if (useHtml5Audio) {
+      // Simplified connection for iOS
+      if (gainNodeRef.current && analyserNodeRef.current) {
+        sourceNode.connect(gainNodeRef.current);
+        gainNodeRef.current.connect(analyserNodeRef.current);
+        gainNodeRef.current.connect(audioContextRef.current.destination);
+      }
+    } else {
+      // Original full connection
+      sourceNode.connect(filterNodeRef.current);
+      filterNodeRef.current.connect(gainNodeRef.current);
+      gainNodeRef.current.connect(analyserNodeRef.current);
+      gainNodeRef.current.connect(dryGainRef.current);
+      dryGainRef.current.connect(audioContextRef.current.destination);
+      gainNodeRef.current.connect(convolverNodeRef.current);
+      convolverNodeRef.current.connect(wetGainRef.current);
+      wetGainRef.current.connect(audioContextRef.current.destination);
+    }
   };
 
-  // Pause audio
+  // Pause audio (ENHANCED for iOS)
   const pauseAudio = useCallback(() => {
-    if (sourceNodeRef.current && audioContextRef.current) {
+    if (useHtml5Audio && audioElementRef.current) {
+      audioElementRef.current.pause();
+      setIsPlaying(false);
+    } else if (sourceNodeRef.current && audioContextRef.current) {
       sourceNodeRef.current.stop();
       sourceNodeRef.current.disconnect();
       sourceNodeRef.current = null;
@@ -587,48 +701,72 @@ const SlowReverbApp = () => {
       setCurrentTime(pauseTimeRef.current);
       setIsPlaying(false);
     }
-  }, [playbackRate, duration]);
+  }, [playbackRate, duration, useHtml5Audio]);
   
-  // Play audio
+  // Play audio (ENHANCED for iOS)
   const playAudio = async () => {
-    if (!audioBufferRef.current || !audioContextRef.current) return;
-    
-    if (audioContextRef.current.state === 'suspended') {
-      await audioContextRef.current.resume();
+    if (useHtml5Audio && audioElementRef.current) {
+      // iOS: HTML5 audio playback
+      try {
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
+        
+        audioElementRef.current.playbackRate = playbackRate;
+        audioElementRef.current.volume = volume;
+        
+        await audioElementRef.current.play();
+        setIsPlaying(true);
+      } catch (error) {
+        setIosError('Playback failed. Tap the screen first to enable audio.');
+      }
+    } else if (audioBufferRef.current && audioContextRef.current) {
+      // Original Web Audio API playback
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.stop();
+        sourceNodeRef.current.disconnect();
+      }
+      
+      sourceNodeRef.current = audioContextRef.current.createBufferSource();
+      sourceNodeRef.current.buffer = audioBufferRef.current;
+      sourceNodeRef.current.playbackRate.value = playbackRate;
+      
+      connectNodes(sourceNodeRef.current);
+      
+      const offset = pauseTimeRef.current;
+      sourceNodeRef.current.start(0, offset);
+      startTimeRef.current = audioContextRef.current.currentTime - offset / playbackRate;
+      
+      sourceNodeRef.current.onended = () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+        pauseTimeRef.current = 0;
+      };
+      
+      setIsPlaying(true);
     }
-    
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
-    
-    sourceNodeRef.current = audioContextRef.current.createBufferSource();
-    sourceNodeRef.current.buffer = audioBufferRef.current;
-    sourceNodeRef.current.playbackRate.value = playbackRate;
-    
-    connectNodes(sourceNodeRef.current);
-    
-    const offset = pauseTimeRef.current;
-    sourceNodeRef.current.start(0, offset);
-    startTimeRef.current = audioContextRef.current.currentTime - offset / playbackRate;
-    
-    sourceNodeRef.current.onended = () => {
-      setIsPlaying(false);
+  };
+  
+  // Reset to beginning (ENHANCED for iOS)
+  const resetAudio = () => {
+    if (useHtml5Audio && audioElementRef.current) {
+      audioElementRef.current.currentTime = 0;
+      setCurrentTime(0);
+      if (isPlaying) {
+        pauseAudio();
+      }
+    } else {
+      pauseAudio();
       setCurrentTime(0);
       pauseTimeRef.current = 0;
-    };
-    
-    setIsPlaying(true);
+    }
   };
   
-  // Reset to beginning
-  const resetAudio = () => {
-    pauseAudio();
-    setCurrentTime(0);
-    pauseTimeRef.current = 0;
-  };
-  
-  // Apply effect preset
+  // Apply effect preset (ORIGINAL)
   const applyPreset = useCallback((preset) => {
     setPlaybackRate(preset.playbackRate);
     setReverbWet(preset.reverbWet);
@@ -637,40 +775,72 @@ const SlowReverbApp = () => {
     setLowPassFilter(preset.lowPassFilter);
   }, []);
   
-  // Update effects in real-time
+  // Update effects in real-time (ENHANCED for iOS)
   useEffect(() => {
-    if (audioContextRef.current && gainNodeRef.current) {
+    if (useHtml5Audio && audioElementRef.current) {
+      audioElementRef.current.volume = volume;
+    } else if (audioContextRef.current && gainNodeRef.current) {
       gainNodeRef.current.gain.value = volume;
     }
-  }, [volume]);
+  }, [volume, useHtml5Audio]);
   
   useEffect(() => {
-    if (audioContextRef.current && wetGainRef.current && dryGainRef.current) {
+    if (useHtml5Audio && audioElementRef.current) {
+      audioElementRef.current.playbackRate = playbackRate;
+    } else if (audioContextRef.current && wetGainRef.current && dryGainRef.current) {
       wetGainRef.current.gain.value = reverbWet;
       dryGainRef.current.gain.value = 1 - reverbWet;
     }
-  }, [reverbWet]);
+  }, [reverbWet, playbackRate, useHtml5Audio]);
   
   useEffect(() => {
-    if (audioContextRef.current && filterNodeRef.current) {
+    if (!useHtml5Audio && audioContextRef.current && filterNodeRef.current) {
       filterNodeRef.current.frequency.value = lowPassFilter;
     }
-  }, [lowPassFilter]);
+  }, [lowPassFilter, useHtml5Audio]);
   
   useEffect(() => {
-    if (sourceNodeRef.current) {
+    if (!useHtml5Audio && sourceNodeRef.current) {
       sourceNodeRef.current.playbackRate.value = playbackRate;
     }
-  }, [playbackRate]);
+  }, [playbackRate, useHtml5Audio]);
   
   useEffect(() => {
-    if (audioContextRef.current && convolverNodeRef.current) {
+    if (!useHtml5Audio && audioContextRef.current && convolverNodeRef.current) {
       const impulseResponse = createReverbImpulse(audioContextRef.current, reverbRoomSize, reverbDecay);
       convolverNodeRef.current.buffer = impulseResponse;
     }
-  }, [reverbRoomSize, reverbDecay]);
+  }, [reverbRoomSize, reverbDecay, useHtml5Audio]);
   
+  // Time update for HTML5 audio
   useEffect(() => {
+    if (!useHtml5Audio || !audioElementRef.current) return;
+    
+    const handleTimeUpdate = () => {
+      setCurrentTime(audioElementRef.current.currentTime);
+    };
+    
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+      audioElementRef.current.currentTime = 0;
+    };
+    
+    audioElementRef.current.addEventListener('timeupdate', handleTimeUpdate);
+    audioElementRef.current.addEventListener('ended', handleEnded);
+    
+    return () => {
+      if (audioElementRef.current) {
+        audioElementRef.current.removeEventListener('timeupdate', handleTimeUpdate);
+        audioElementRef.current.removeEventListener('ended', handleEnded);
+      }
+    };
+  }, [audioFile, useHtml5Audio]);
+  
+  // Original time update for Web Audio API
+  useEffect(() => {
+    if (useHtml5Audio) return;
+    
     let interval;
     if (isPlaying && audioContextRef.current && startTimeRef.current) {
       interval = setInterval(() => {
@@ -684,21 +854,25 @@ const SlowReverbApp = () => {
       }, 100);
     }
     return () => clearInterval(interval);
-  }, [isPlaying, duration, playbackRate, pauseAudio]);
+  }, [isPlaying, duration, playbackRate, pauseAudio, useHtml5Audio]);
   
-  // Format time display
+  // Format time display (ORIGINAL)
   const formatTime = (time) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
   
-  // Export processed audio - implementation placeholder
+  // Export processed audio (ORIGINAL)
   const exportAudio = () => {
-    alert('Export functionality would be implemented with OfflineAudioContext for production use.');
+    if (isIOSDevice) {
+      alert('Export functionality is limited on iOS Safari. Please use a desktop browser for full export capabilities.');
+    } else {
+      alert('Export functionality would be implemented with OfflineAudioContext for production use.');
+    }
   };
 
-  // Helper function to get themed button style
+  // Helper function to get themed button style (ORIGINAL)
   const getButtonStyle = (type = 'default', disabled = false, isPlayButton = false) => {
     const baseStyle = {
       display: 'flex',
@@ -709,7 +883,9 @@ const SlowReverbApp = () => {
       opacity: disabled ? 0.5 : 1,
       background: 'none',
       border: `1px solid ${theme.colors.border}`,
-      color: theme.colors.text.primary
+      color: theme.colors.text.primary,
+      WebkitTapHighlightColor: 'transparent', // iOS: Remove tap highlight
+      touchAction: 'manipulation' // iOS: Improve touch responsiveness
     };
 
     if (type === 'theme') {
@@ -761,20 +937,22 @@ const SlowReverbApp = () => {
     return baseStyle;
   };
 
-  // Helper function to get slider style
+  // Helper function to get slider style (ORIGINAL)
   const getSliderStyle = (disabled = false) => ({
     width: '100%',
     height: theme.effects.sliderHeight,
     background: theme.effects.sliderTrack,
     marginTop: '0.25rem',
     WebkitAppearance: 'none',
+    appearance: 'none', // iOS: Add standard appearance
     outline: 'none',
     marginBottom: '1rem',
     opacity: disabled ? 0.5 : 1,
     cursor: disabled ? 'not-allowed' : 'pointer',
     border: currentTheme === 'pixel' ? '2px solid #000000' : 'none',
     borderRadius: currentTheme === 'dark' ? '2px' : currentTheme === 'tropical' ? '4px' : '0',
-    imageRendering: theme.special?.imageRendering
+    imageRendering: theme.special?.imageRendering,
+    WebkitTapHighlightColor: 'transparent' // iOS: Remove tap highlight
   });
 
   return (
@@ -782,7 +960,7 @@ const SlowReverbApp = () => {
       ...theme.container,
       fontFamily: theme.fonts.primary
     }}>
-      {/* Background patterns */}
+      {/* Background patterns (ORIGINAL) */}
       {theme.backgroundPattern && (
         <div style={{
           position: 'fixed',
@@ -797,6 +975,29 @@ const SlowReverbApp = () => {
       )}
       
       <div style={{ position: 'relative', zIndex: 2 }}>
+        {/* iOS Error Display */}
+        {isIOSDevice && iosError && (
+          <div style={{
+            position: 'absolute',
+            top: '-4rem',
+            left: 0,
+            right: 0,
+            padding: '0.75rem',
+            background: '#FFF3CD',
+            border: '1px solid #FFECB3',
+            borderRadius: currentTheme === 'tropical' ? '12px' : currentTheme === 'dark' ? '8px' : '4px',
+            fontSize: '0.75rem',
+            color: '#856404',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            zIndex: 20
+          }}>
+            <AlertCircle size={14} />
+            {iosError}
+          </div>
+        )}
+      
         {isLoading && (
           <div style={{
             position: 'absolute',
@@ -821,7 +1022,7 @@ const SlowReverbApp = () => {
         )}
         
         <div className="player-2" style={theme.player}>
-          {/* Header */}
+          {/* Header (ORIGINAL) */}
           <div className="player-2__header" style={theme.header}>
             <div className="player-2__title" style={{
               fontSize: '0.75rem',
@@ -844,7 +1045,7 @@ const SlowReverbApp = () => {
             </button>
           </div>
 
-          {/* Artwork/Visualizer */}
+          {/* Artwork/Visualizer (ORIGINAL) */}
           <div className="player-2__artwork" style={{
             aspectRatio: '1',
             background: currentTheme === 'vaporwave' ? 'linear-gradient(45deg, #3a0ca3, #7209b7)' : 
@@ -923,7 +1124,7 @@ const SlowReverbApp = () => {
             )}
           </div>
 
-          {/* Track Info */}
+          {/* Track Info (ORIGINAL) */}
           <div className="player-2__info" style={{
             padding: '1rem',
             textAlign: 'center',
@@ -949,7 +1150,7 @@ const SlowReverbApp = () => {
             </div>
           </div>
 
-          {/* Progress */}
+          {/* Progress (ORIGINAL) */}
           <div className="player-2__progress" style={{
             padding: '1rem',
             borderBottom: `1px solid ${theme.colors.border}`
@@ -987,7 +1188,7 @@ const SlowReverbApp = () => {
             </div>
           </div>
 
-          {/* Controls */}
+          {/* Controls (ORIGINAL) */}
           <div className="player-2__controls" style={{
             display: 'flex',
             justifyContent: 'center',
@@ -1042,7 +1243,7 @@ const SlowReverbApp = () => {
             />
           </div>
 
-          {/* Effects */}
+          {/* Effects (ORIGINAL with iOS compatibility notes) */}
           <div className="player-2__effects" style={{ padding: '1rem' }}>
             {/* Speed */}
             <div className="player-2__effect-row" style={{
@@ -1081,7 +1282,7 @@ const SlowReverbApp = () => {
               style={getSliderStyle(!audioFile)}
             />
 
-            {/* Reverb */}
+            {/* Reverb (Note: Limited on iOS) */}
             <div className="player-2__effect-row" style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -1092,10 +1293,10 @@ const SlowReverbApp = () => {
                 fontSize: '0.625rem',
                 textTransform: 'uppercase',
                 letterSpacing: '0.1em',
-                color: theme.colors.text.secondary,
+                color: useHtml5Audio ? theme.colors.text.secondary + '80' : theme.colors.text.secondary,
                 fontWeight: theme.text.weight
               }}>
-                {currentTheme === 'pixel' ? 'REV' : 'Reverb'}
+                {currentTheme === 'pixel' ? 'REV' : 'Reverb'} {useHtml5Audio && '(Limited)'}
               </span>
               <span className="player-2__effect-value" style={{
                 fontSize: '0.625rem',
@@ -1114,11 +1315,11 @@ const SlowReverbApp = () => {
               step="0.05"
               value={reverbWet}
               onChange={(e) => setReverbWet(parseFloat(e.target.value))}
-              disabled={!audioFile}
-              style={getSliderStyle(!audioFile)}
+              disabled={!audioFile || useHtml5Audio}
+              style={getSliderStyle(!audioFile || useHtml5Audio)}
             />
 
-            {/* Filter */}
+            {/* Filter (Note: Limited on iOS) */}
             <div className="player-2__effect-row" style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -1129,10 +1330,10 @@ const SlowReverbApp = () => {
                 fontSize: '0.625rem',
                 textTransform: 'uppercase',
                 letterSpacing: '0.1em',
-                color: theme.colors.text.secondary,
+                color: useHtml5Audio ? theme.colors.text.secondary + '80' : theme.colors.text.secondary,
                 fontWeight: theme.text.weight
               }}>
-                {currentTheme === 'pixel' ? 'FLT' : 'Filter'}
+                {currentTheme === 'pixel' ? 'FLT' : 'Filter'} {useHtml5Audio && '(Limited)'}
               </span>
               <span className="player-2__effect-value" style={{
                 fontSize: '0.625rem',
@@ -1151,8 +1352,8 @@ const SlowReverbApp = () => {
               step="100"
               value={lowPassFilter}
               onChange={(e) => setLowPassFilter(parseInt(e.target.value))}
-              disabled={!audioFile}
-              style={getSliderStyle(!audioFile)}
+              disabled={!audioFile || useHtml5Audio}
+              style={getSliderStyle(!audioFile || useHtml5Audio)}
             />
 
             {/* Volume */}
@@ -1192,7 +1393,7 @@ const SlowReverbApp = () => {
               style={getSliderStyle(!audioFile)}
             />
 
-            {/* Presets */}
+            {/* Presets (ORIGINAL) */}
             <div style={{
               marginTop: '1.5rem',
               paddingTop: '1rem',
@@ -1249,6 +1450,29 @@ const SlowReverbApp = () => {
         </div>
       </div>
 
+      {/* iOS Tips */}
+      {isIOSDevice && (
+        <div style={{
+          position: 'absolute',
+          bottom: '-8rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '100%',
+          maxWidth: '300px',
+          padding: '0.75rem',
+          background: theme.colors.surface,
+          border: `1px solid ${theme.colors.border}`,
+          borderRadius: currentTheme === 'tropical' ? '12px' : currentTheme === 'dark' ? '8px' : '4px',
+          fontSize: '0.625rem',
+          color: theme.colors.text.secondary,
+          lineHeight: '1.3',
+          textAlign: 'center'
+        }}>
+          <strong>iOS Mode:</strong> Using simplified audio processing for compatibility. 
+          Some effects may be limited. Use Safari for best results.
+        </div>
+      )}
+
       <style>{`
         .player-2__control-btn:hover:not(:disabled) {
           background: ${theme.colors.primary} !important;
@@ -1281,6 +1505,7 @@ const SlowReverbApp = () => {
           box-shadow: ${theme.effects.thumbShadow || 'none'};
           ${theme.special?.imageRendering ? 'image-rendering: pixelated;' : ''}
           transition: all 0.2s ease;
+          -webkit-tap-highlight-color: transparent;
         }
         
         .player-2__effect-slider:disabled::-webkit-slider-thumb {
@@ -1294,6 +1519,13 @@ const SlowReverbApp = () => {
           ${theme.special?.imageRendering ? 'image-rendering: pixelated;' : ''}
         }
         
+        .player-2__effect-slider::-webkit-slider-track {
+          background: ${theme.effects.sliderTrack};
+          height: ${theme.effects.sliderHeight};
+          border-radius: ${currentTheme === 'dark' ? '2px' : currentTheme === 'tropical' ? '4px' : '0'};
+          border: ${currentTheme === 'pixel' ? '2px solid #000000' : 'none'};
+        }
+        
         button:hover:not(:disabled) {
           background: ${theme.colors.primary} !important;
           color: ${theme.colors.text.inverse} !important;
@@ -1301,6 +1533,24 @@ const SlowReverbApp = () => {
           ${currentTheme === 'pixel' ? 'box-shadow: 4px 4px 0 #000000 !important;' : 
             currentTheme === 'dark' ? 'box-shadow: 0 0 12px rgba(0, 255, 127, 0.6) !important;' : 
             currentTheme === 'tropical' ? 'box-shadow: 0 6px 16px rgba(255, 111, 97, 0.4) !important;' : ''}
+        }
+        
+        /* iOS-specific optimizations */
+        @supports (-webkit-touch-callout: none) {
+          * {
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+          }
+          
+          button {
+            -webkit-user-select: none;
+            user-select: none;
+          }
+          
+          input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+          }
         }
         
         ${currentTheme === 'pixel' ? `
@@ -1331,6 +1581,26 @@ const SlowReverbApp = () => {
           animation: bounce 0.6s ease;
         }
         ` : ''}
+        
+        /* Mobile responsiveness */
+        @media (max-width: 480px) {
+          .player-2 {
+            max-width: 280px;
+          }
+          
+          .player-2__controls {
+            gap: 0.75rem;
+            padding: 0.75rem;
+          }
+          
+          .player-2__artwork {
+            padding: 0.75rem;
+          }
+          
+          .player-2__effects {
+            padding: 0.75rem;
+          }
+        }
       `}</style>
     </div>
   );
