@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/slow-reverb-studio/static/css/main.93a0497a.css",
+    "main.js": "/slow-reverb-studio/static/js/main.0119f657.js",
+    "index.html": "/slow-reverb-studio/index.html",
+    "main.93a0497a.css.map": "/slow-reverb-studio/static/css/main.93a0497a.css.map",
+    "main.0119f657.js.map": "/slow-reverb-studio/static/js/main.0119f657.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.93a0497a.css",
+    "static/js/main.0119f657.js"
+  ]
+}
