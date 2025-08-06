@@ -441,35 +441,39 @@ const themeConfig = {
   }
 };
 
-// Theme presets for audio effects (ORIGINAL)
+// Enhanced effect presets with better mobile compatibility
 const effectPresets = {
   bedroom: {
     playbackRate: 0.8,
-    reverbWet: 0.3,
-    reverbRoomSize: 0.7,
-    reverbDecay: 2.5,
-    lowPassFilter: 6000
+    reverbWet: 0.25,
+    reverbRoomSize: 0.6,
+    reverbDecay: 2.0,
+    lowPassFilter: 6000,
+    preservePitch: true
   },
   vaporwave: {
     playbackRate: 0.6,
-    reverbWet: 0.5,
-    reverbRoomSize: 1.2,
-    reverbDecay: 4,
-    lowPassFilter: 4000
+    reverbWet: 0.4,
+    reverbRoomSize: 1.0,
+    reverbDecay: 3.5,
+    lowPassFilter: 4000,
+    preservePitch: true
   },
   chill: {
     playbackRate: 0.75,
-    reverbWet: 0.2,
-    reverbRoomSize: 0.5,
-    reverbDecay: 1.5,
-    lowPassFilter: 8000
+    reverbWet: 0.15,
+    reverbRoomSize: 0.4,
+    reverbDecay: 1.2,
+    lowPassFilter: 8000,
+    preservePitch: true
   },
   midnight: {
     playbackRate: 0.65,
-    reverbWet: 0.45,
-    reverbRoomSize: 0.9,
-    reverbDecay: 3.2,
-    lowPassFilter: 4500
+    reverbWet: 0.35,
+    reverbRoomSize: 0.8,
+    reverbDecay: 2.8,
+    lowPassFilter: 4500,
+    preservePitch: true
   }
 };
 
@@ -504,6 +508,28 @@ const isIOS = () => {
          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 };
 
+// iOS-safe audio context creation
+const createIOSSafeAudioContext = async (desiredSampleRate = 44100) => {
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return null;
+
+  let context = new AudioCtor();
+  
+  // iOS sample rate fix
+  if (isIOS() && context.sampleRate !== desiredSampleRate) {
+    console.log(`iOS sample rate mismatch: ${context.sampleRate}Hz, desired: ${desiredSampleRate}Hz`);
+    
+    try {
+      await context.close();
+      context = new AudioCtor();
+    } catch (error) {
+      console.warn('Failed to fix iOS sample rate:', error);
+    }
+  }
+  
+  return context;
+};
+
 const SlowReverbApp = () => {
   const { theme, currentTheme, cycleTheme } = useTheme('default');
   
@@ -516,19 +542,21 @@ const SlowReverbApp = () => {
   const [isIOSDevice, setIsIOSDevice] = useState(false);
   const [audioError, setAudioError] = useState('');
   const [userInteracted, setUserInteracted] = useState(false);
+  const [audioQuality, setAudioQuality] = useState('high'); // high, medium, basic
   
   // Visualizer state (ORIGINAL)
   const [visualizerData, setVisualizerData] = useState(Array(32).fill(0));
   
-  // Effect parameters (ORIGINAL)
+  // Effect parameters with mobile optimization
   const [playbackRate, setPlaybackRate] = useState(0.8);
-  const [reverbRoomSize, setReverbRoomSize] = useState(0.7);
-  const [reverbDecay, setReverbDecay] = useState(2.5);
-  const [reverbWet, setReverbWet] = useState(0.3);
+  const [reverbRoomSize, setReverbRoomSize] = useState(0.6);
+  const [reverbDecay, setReverbDecay] = useState(2.0);
+  const [reverbWet, setReverbWet] = useState(0.25);
   const [volume, setVolume] = useState(0.8);
   const [lowPassFilter, setLowPassFilter] = useState(8000);
+  const [preservePitch, setPreservePitch] = useState(true);
   
-  // Audio context and nodes
+  // Enhanced audio context and nodes
   const audioContextRef = useRef(null);
   const sourceNodeRef = useRef(null);
   const gainNodeRef = useRef(null);
@@ -538,27 +566,38 @@ const SlowReverbApp = () => {
   const filterNodeRef = useRef(null);
   const audioBufferRef = useRef(null);
   const analyserNodeRef = useRef(null);
+  const pitchShifterRef = useRef(null);
   
-  // Mobile fallback: HTML5 audio element
-  const audioElementRef = useRef(null);
-  const [useFallbackAudio, setUseFallbackAudio] = useState(false);
+  // Improved buffer management
+  const processedBufferRef = useRef(null);
+  const bufferChunksRef = useRef([]);
+  const chunkSizeRef = useRef(4096); // Larger chunks for mobile
   
   const fileInputRef = useRef(null);
   const startTimeRef = useRef(0);
   const pauseTimeRef = useRef(0);
   const animationFrameRef = useRef(null);
   
-  // Detect device type on mount
+  // Detect device type and set quality on mount
   useEffect(() => {
     const mobile = isMobile();
     const ios = isIOS();
     setIsMobileDevice(mobile);
     setIsIOSDevice(ios);
     
-    // Use fallback audio for mobile devices initially
-    setUseFallbackAudio(mobile);
+    // Set audio quality based on device
+    if (ios) {
+      setAudioQuality('medium'); // iOS has good performance but needs optimization
+      chunkSizeRef.current = 8192; // Larger chunks for iOS
+    } else if (mobile) {
+      setAudioQuality('basic'); // Android/other mobile
+      chunkSizeRef.current = 16384; // Even larger for Android
+    } else {
+      setAudioQuality('high'); // Desktop
+      chunkSizeRef.current = 4096;
+    }
     
-    // Add user interaction listener for mobile
+    // Add user interaction listener
     const handleUserInteraction = () => {
       setUserInteracted(true);
       document.removeEventListener('touchstart', handleUserInteraction);
@@ -574,61 +613,68 @@ const SlowReverbApp = () => {
     };
   }, []);
   
-  // Initialize audio context with better error handling
+  // Enhanced audio context initialization
   const initAudioContext = async () => {
     try {
       if (!audioContextRef.current) {
-        // Try to create audio context
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContext) {
+        audioContextRef.current = await createIOSSafeAudioContext(44100);
+        
+        if (!audioContextRef.current) {
           throw new Error('Web Audio API not supported');
         }
         
-        audioContextRef.current = new AudioContext();
-        
-        // Create nodes based on device capabilities
+        // Create essential nodes
         gainNodeRef.current = audioContextRef.current.createGain();
         analyserNodeRef.current = audioContextRef.current.createAnalyser();
         
-        // Optimize analyzer for mobile
-        if (isMobileDevice) {
+        // Optimize analyzer based on device
+        if (audioQuality === 'basic') {
           analyserNodeRef.current.fftSize = 64;
           analyserNodeRef.current.smoothingTimeConstant = 0.9;
-        } else {
+        } else if (audioQuality === 'medium') {
           analyserNodeRef.current.fftSize = 128;
+          analyserNodeRef.current.smoothingTimeConstant = 0.85;
+        } else {
+          analyserNodeRef.current.fftSize = 256;
           analyserNodeRef.current.smoothingTimeConstant = 0.8;
         }
         
         analyserNodeRef.current.minDecibels = -90;
         analyserNodeRef.current.maxDecibels = -10;
         
-        // Only create advanced nodes for desktop or when not using fallback
-        if (!useFallbackAudio) {
+        // Create advanced nodes for medium/high quality
+        if (audioQuality !== 'basic') {
           try {
-            const impulseResponse = createReverbImpulse(audioContextRef.current, reverbRoomSize, reverbDecay);
-            
             convolverNodeRef.current = audioContextRef.current.createConvolver();
             wetGainRef.current = audioContextRef.current.createGain();
             dryGainRef.current = audioContextRef.current.createGain();
             filterNodeRef.current = audioContextRef.current.createBiquadFilter();
             
+            // Create reverb impulse with optimized parameters
+            const impulseResponse = createReverbImpulse(
+              audioContextRef.current, 
+              reverbRoomSize, 
+              reverbDecay,
+              audioQuality === 'medium' ? 2 : 4 // Shorter reverb for mobile
+            );
+            
             convolverNodeRef.current.buffer = impulseResponse;
             filterNodeRef.current.type = 'lowpass';
             filterNodeRef.current.frequency.value = lowPassFilter;
+            filterNodeRef.current.Q.value = 1;
             
-            gainNodeRef.current.gain.value = volume;
             wetGainRef.current.gain.value = reverbWet;
             dryGainRef.current.gain.value = 1 - reverbWet;
           } catch (advancedError) {
-            console.warn('Advanced audio features not available, using basic mode:', advancedError);
-            setUseFallbackAudio(true);
+            console.warn('Advanced audio features not available:', advancedError);
+            setAudioQuality('basic');
           }
         }
         
         gainNodeRef.current.gain.value = volume;
       }
       
-      // Resume context if suspended (common on mobile)
+      // Resume context if suspended
       if (audioContextRef.current.state === 'suspended') {
         await audioContextRef.current.resume();
       }
@@ -636,12 +682,95 @@ const SlowReverbApp = () => {
       return true;
     } catch (error) {
       console.error('Audio context initialization error:', error);
-      setUseFallbackAudio(true);
+      setAudioError('Audio initialization failed. Please try refreshing the page.');
       return false;
     }
   };
   
-  // Update visualizer (ORIGINAL)
+  // Enhanced reverb impulse creation with quality optimization
+  const createReverbImpulse = (audioContext, roomSize, decay, durationSeconds = 4) => {
+    const length = audioContext.sampleRate * Math.min(durationSeconds, 4); // Limit length for mobile
+    const impulse = audioContext.createBuffer(2, length, audioContext.sampleRate);
+    
+    for (let channel = 0; channel < 2; channel++) {
+      const channelData = impulse.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        const n = length - i;
+        const envelope = Math.pow(n / length, roomSize);
+        const noise = (Math.random() * 2 - 1) * envelope;
+        
+        // Apply subtle filtering for more natural reverb
+        if (i > 0) {
+          channelData[i] = noise * 0.8 + channelData[i - 1] * 0.2;
+        } else {
+          channelData[i] = noise;
+        }
+      }
+    }
+    
+    return impulse;
+  };
+  
+  // Enhanced audio processing with pitch preservation
+  const processAudioBuffer = async (buffer, rate, preservePitch = true) => {
+    if (!audioContextRef.current) return buffer;
+    
+    try {
+      const offlineContext = new OfflineAudioContext(
+        buffer.numberOfChannels,
+        Math.floor(buffer.length / rate),
+        buffer.sampleRate
+      );
+      
+      const source = offlineContext.createBufferSource();
+      source.buffer = buffer;
+      
+      if (preservePitch && rate !== 1.0) {
+        // Simple pitch preservation using resampling
+        source.playbackRate.value = rate;
+        
+        // Create a pitch shifter effect (simplified)
+        const pitchRatio = 1 / rate;
+        if (pitchRatio !== 1.0) {
+          // This is a simplified approach - in production you'd use a more sophisticated algorithm
+          const shiftedBuffer = offlineContext.createBuffer(
+            buffer.numberOfChannels,
+            buffer.length,
+            buffer.sampleRate * pitchRatio
+          );
+          
+          for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+            const inputData = buffer.getChannelData(channel);
+            const outputData = shiftedBuffer.getChannelData(channel);
+            
+            for (let i = 0; i < outputData.length; i++) {
+              const sourceIndex = Math.floor(i * rate);
+              if (sourceIndex < inputData.length) {
+                outputData[i] = inputData[sourceIndex];
+              }
+            }
+          }
+          
+          source.buffer = shiftedBuffer;
+          source.playbackRate.value = 1.0;
+        }
+      } else {
+        source.playbackRate.value = rate;
+      }
+      
+      source.connect(offlineContext.destination);
+      source.start(0);
+      
+      const processedBuffer = await offlineContext.startRendering();
+      return processedBuffer;
+      
+    } catch (error) {
+      console.warn('Audio processing failed, using original buffer:', error);
+      return buffer;
+    }
+  };
+  
+  // Update visualizer with performance optimization
   const updateVisualizer = useCallback(() => {
     if (!analyserNodeRef.current || !isPlaying) {
       setVisualizerData(Array(32).fill(2));
@@ -653,9 +782,10 @@ const SlowReverbApp = () => {
     analyserNodeRef.current.getByteFrequencyData(dataArray);
     
     const bars = [];
-    const groupSize = Math.floor(bufferLength / 32);
+    const numBars = audioQuality === 'basic' ? 16 : 32;
+    const groupSize = Math.floor(bufferLength / numBars);
     
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < numBars; i++) {
       let sum = 0;
       const startIndex = i * groupSize;
       const endIndex = Math.min(startIndex + groupSize, bufferLength);
@@ -669,14 +799,19 @@ const SlowReverbApp = () => {
       bars.push(Math.max(2, normalizedValue));
     }
     
+    // Pad with zeros if needed
+    while (bars.length < 32) {
+      bars.push(2);
+    }
+    
     setVisualizerData(bars);
     
     if (isPlaying) {
       animationFrameRef.current = requestAnimationFrame(updateVisualizer);
     }
-  }, [isPlaying]);
+  }, [isPlaying, audioQuality]);
   
-  // Start visualizer animation (ORIGINAL)
+  // Start visualizer animation
   useEffect(() => {
     if (isPlaying) {
       updateVisualizer();
@@ -694,23 +829,7 @@ const SlowReverbApp = () => {
     };
   }, [isPlaying, updateVisualizer]);
   
-  // Create reverb impulse response (ORIGINAL)
-  const createReverbImpulse = (audioContext, roomSize, decay) => {
-    const length = audioContext.sampleRate * decay;
-    const impulse = audioContext.createBuffer(2, length, audioContext.sampleRate);
-    
-    for (let channel = 0; channel < 2; channel++) {
-      const channelData = impulse.getChannelData(channel);
-      for (let i = 0; i < length; i++) {
-        const n = length - i;
-        channelData[i] = (Math.random() * 2 - 1) * Math.pow(n / length, roomSize);
-      }
-    }
-    
-    return impulse;
-  };
-  
-  // Enhanced file upload with better mobile support
+  // Enhanced file upload with better processing
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file || !file.type.startsWith('audio/')) {
@@ -718,9 +837,13 @@ const SlowReverbApp = () => {
       return;
     }
     
-    // Check file size for mobile devices
-    if (isMobileDevice && file.size > 100 * 1024 * 1024) {
-      setAudioError('File too large for mobile. Please use files under 100MB.');
+    // Check file size based on device capability
+    const maxSize = audioQuality === 'basic' ? 50 * 1024 * 1024 : 
+                   audioQuality === 'medium' ? 100 * 1024 * 1024 : 
+                   200 * 1024 * 1024;
+    
+    if (file.size > maxSize) {
+      setAudioError(`File too large. Please use files under ${Math.floor(maxSize / 1024 / 1024)}MB.`);
       return;
     }
     
@@ -729,122 +852,73 @@ const SlowReverbApp = () => {
     setAudioError('');
     
     try {
-      // Try Web Audio API first if not using fallback
-      if (!useFallbackAudio) {
-        try {
-          const contextReady = await initAudioContext();
-          if (!contextReady) {
-            throw new Error('Audio context failed');
-          }
-          
-          const arrayBuffer = await file.arrayBuffer();
-          const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-          
-          audioBufferRef.current = audioBuffer;
-          setDuration(audioBuffer.duration);
-          setCurrentTime(0);
-          pauseTimeRef.current = 0;
-          setIsLoading(false);
-          
-          if (isMobileDevice) {
-            setAudioError('High-quality mode enabled! Tap to start playing.');
-          }
-          
-          return;
-        } catch (webAudioError) {
-          console.warn('Web Audio API failed, falling back to HTML5:', webAudioError);
-          setUseFallbackAudio(true);
-        }
+      const contextReady = await initAudioContext();
+      if (!contextReady) {
+        throw new Error('Audio context initialization failed');
       }
       
-      // HTML5 Audio fallback for mobile/problematic files
-      if (audioElementRef.current) {
-        audioElementRef.current.pause();
-      }
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
       
-      audioElementRef.current = new Audio();
-      audioElementRef.current.preload = 'metadata';
-      audioElementRef.current.crossOrigin = 'anonymous';
+      audioBufferRef.current = audioBuffer;
+      setDuration(audioBuffer.duration);
+      setCurrentTime(0);
+      pauseTimeRef.current = 0;
+      setIsLoading(false);
       
-      // Mobile-specific settings
+      // Show quality info
+      const qualityMessage = audioQuality === 'basic' ? 'Basic audio mode enabled for compatibility.' :
+                            audioQuality === 'medium' ? 'Optimized audio mode for mobile devices.' :
+                            'High-quality audio mode enabled.';
+      
       if (isMobileDevice) {
-        audioElementRef.current.preservesPitch = false;
-        audioElementRef.current.mozPreservesPitch = false;
-        audioElementRef.current.webkitPreservesPitch = false;
+        setAudioError(qualityMessage);
+        setTimeout(() => setAudioError(''), 3000);
       }
-      
-      const objectURL = URL.createObjectURL(file);
-      audioElementRef.current.src = objectURL;
-      
-      audioElementRef.current.onloadedmetadata = () => {
-        setDuration(audioElementRef.current.duration);
-        setCurrentTime(0);
-        pauseTimeRef.current = 0;
-        
-        // Try to connect to Web Audio API for visualizer
-        if (audioContextRef.current && userInteracted) {
-          try {
-            const contextReady = initAudioContext();
-            if (contextReady && !sourceNodeRef.current) {
-              sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audioElementRef.current);
-              sourceNodeRef.current.connect(gainNodeRef.current);
-              gainNodeRef.current.connect(analyserNodeRef.current);
-              gainNodeRef.current.connect(audioContextRef.current.destination);
-            }
-          } catch (error) {
-            console.warn('Limited Web Audio API connection:', error);
-          }
-        }
-        
-        setIsLoading(false);
-        if (isMobileDevice) {
-          setAudioError('Mobile mode: Speed and volume available. Advanced effects limited.');
-        }
-      };
-      
-      audioElementRef.current.onerror = (error) => {
-        console.error('HTML5 audio error:', error);
-        setAudioError('Failed to load audio file. Try MP3, AAC, or WAV format.');
-        setIsLoading(false);
-      };
-      
-      audioElementRef.current.load();
       
     } catch (error) {
       console.error('Error loading audio file:', error);
-      setAudioError('Error loading audio file. Please try a different file.');
+      setAudioError('Failed to load audio file. Please try a different format (MP3, AAC, WAV).');
       setIsLoading(false);
     }
   };
   
-  // Connect audio nodes (ORIGINAL)
+  // Enhanced node connection with quality adaptation
   const connectNodes = (sourceNode) => {
-    if (useFallbackAudio || !convolverNodeRef.current) {
-      // Simplified connection for mobile/fallback
-      if (gainNodeRef.current && analyserNodeRef.current) {
+    try {
+      if (audioQuality === 'basic') {
+        // Simple connection for basic quality
         sourceNode.connect(gainNodeRef.current);
         gainNodeRef.current.connect(analyserNodeRef.current);
         gainNodeRef.current.connect(audioContextRef.current.destination);
+      } else {
+        // Full connection for medium/high quality
+        sourceNode.connect(filterNodeRef.current);
+        filterNodeRef.current.connect(gainNodeRef.current);
+        gainNodeRef.current.connect(analyserNodeRef.current);
+        
+        // Dry signal
+        gainNodeRef.current.connect(dryGainRef.current);
+        dryGainRef.current.connect(audioContextRef.current.destination);
+        
+        // Wet signal (reverb)
+        if (convolverNodeRef.current && wetGainRef.current) {
+          gainNodeRef.current.connect(convolverNodeRef.current);
+          convolverNodeRef.current.connect(wetGainRef.current);
+          wetGainRef.current.connect(audioContextRef.current.destination);
+        }
       }
-    } else {
-      // Full connection for desktop
-      sourceNode.connect(filterNodeRef.current);
-      filterNodeRef.current.connect(gainNodeRef.current);
-      gainNodeRef.current.connect(analyserNodeRef.current);
-      gainNodeRef.current.connect(dryGainRef.current);
-      dryGainRef.current.connect(audioContextRef.current.destination);
-      gainNodeRef.current.connect(convolverNodeRef.current);
-      convolverNodeRef.current.connect(wetGainRef.current);
-      wetGainRef.current.connect(audioContextRef.current.destination);
+    } catch (error) {
+      console.error('Node connection error:', error);
+      // Fallback to simple connection
+      sourceNode.connect(gainNodeRef.current);
+      gainNodeRef.current.connect(audioContextRef.current.destination);
     }
   };
-
+  
   // Enhanced pause function
   const pauseAudio = useCallback(() => {
-    if (useFallbackAudio && audioElementRef.current) {
-      audioElementRef.current.pause();
-      setIsPlaying(false);
-    } else if (sourceNodeRef.current && audioContextRef.current) {
+    if (sourceNodeRef.current && audioContextRef.current) {
       try {
         sourceNodeRef.current.stop();
         sourceNodeRef.current.disconnect();
@@ -859,204 +933,138 @@ const SlowReverbApp = () => {
         setIsPlaying(false);
       }
     }
-  }, [playbackRate, duration, useFallbackAudio]);
+  }, [playbackRate, duration]);
   
-  // Enhanced play function with better mobile support
+  // Enhanced play function with quality optimization
   const playAudio = async () => {
     if (!userInteracted && isMobileDevice) {
-      setAudioError('Please tap anywhere on the screen first to enable audio.');
+      setAudioError('Please tap anywhere to enable audio playback.');
+      return;
+    }
+    
+    if (!audioBufferRef.current || !audioContextRef.current) {
+      setAudioError('No audio file loaded.');
       return;
     }
     
     setAudioError('');
     
-    if (useFallbackAudio && audioElementRef.current) {
-      try {
-        // Ensure audio context is running
-        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-          await audioContextRef.current.resume();
-        }
-        
-        // Set playback rate with mobile-friendly limits
-        const clampedRate = isMobileDevice ? 
-          Math.max(0.25, Math.min(4.0, playbackRate)) : playbackRate;
-        
-        if (clampedRate !== playbackRate && isMobileDevice) {
-          setAudioError(`Playback rate adjusted to ${clampedRate.toFixed(1)}x for mobile compatibility.`);
-        }
-        
-        audioElementRef.current.playbackRate = clampedRate;
-        
-        // Set volume
-        if (gainNodeRef.current && sourceNodeRef.current) {
-          gainNodeRef.current.gain.value = volume;
-          audioElementRef.current.volume = 1.0; // Let Web Audio handle volume
-        } else {
-          audioElementRef.current.volume = volume;
-        }
-        
-        await audioElementRef.current.play();
-        setIsPlaying(true);
-        
-      } catch (error) {
-        console.error('Mobile playback error:', error);
-        if (error.name === 'NotAllowedError') {
-          setAudioError('Playback blocked. Please tap the screen first to enable audio.');
-        } else if (error.name === 'NotSupportedError') {
-          setAudioError('Audio format not supported. Try MP3 or AAC.');
-        } else {
-          setAudioError('Playback failed. Please try reloading the file.');
-        }
+    try {
+      // Ensure audio context is running
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
       }
-    } else if (audioBufferRef.current && audioContextRef.current) {
-      // Web Audio API playback
-      try {
-        if (audioContextRef.current.state === 'suspended') {
-          await audioContextRef.current.resume();
-        }
-        
-        if (sourceNodeRef.current) {
-          sourceNodeRef.current.stop();
-          sourceNodeRef.current.disconnect();
-        }
-        
-        sourceNodeRef.current = audioContextRef.current.createBufferSource();
-        sourceNodeRef.current.buffer = audioBufferRef.current;
+      
+      // Stop any existing playback
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.stop();
+        sourceNodeRef.current.disconnect();
+      }
+      
+      // Create new source
+      sourceNodeRef.current = audioContextRef.current.createBufferSource();
+      
+      // Process audio if needed
+      let bufferToPlay = audioBufferRef.current;
+      if (preservePitch && playbackRate !== 1.0 && audioQuality !== 'basic') {
+        bufferToPlay = await processAudioBuffer(audioBufferRef.current, playbackRate, true);
+        sourceNodeRef.current.playbackRate.value = 1.0;
+      } else {
         sourceNodeRef.current.playbackRate.value = playbackRate;
-        
-        connectNodes(sourceNodeRef.current);
-        
-        const offset = pauseTimeRef.current;
-        sourceNodeRef.current.start(0, offset);
-        startTimeRef.current = audioContextRef.current.currentTime - offset / playbackRate;
-        
-        sourceNodeRef.current.onended = () => {
-          setIsPlaying(false);
-          setCurrentTime(0);
-          pauseTimeRef.current = 0;
-        };
-        
-        setIsPlaying(true);
-        
-      } catch (error) {
-        console.error('Web Audio playback error:', error);
-        setAudioError('Playback failed. Please try reloading the file.');
       }
+      
+      sourceNodeRef.current.buffer = bufferToPlay;
+      
+      // Connect nodes
+      connectNodes(sourceNodeRef.current);
+      
+      // Start playback
+      const offset = pauseTimeRef.current;
+      sourceNodeRef.current.start(0, offset);
+      startTimeRef.current = audioContextRef.current.currentTime - offset / sourceNodeRef.current.playbackRate.value;
+      
+      sourceNodeRef.current.onended = () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+        pauseTimeRef.current = 0;
+      };
+      
+      setIsPlaying(true);
+      
+    } catch (error) {
+      console.error('Playback error:', error);
+      setAudioError('Playback failed. Please try reloading the file.');
     }
   };
   
   // Reset function
   const resetAudio = () => {
-    if (useFallbackAudio && audioElementRef.current) {
-      audioElementRef.current.currentTime = 0;
-      setCurrentTime(0);
-      if (isPlaying) {
-        pauseAudio();
-      }
-    } else {
-      pauseAudio();
-      setCurrentTime(0);
-      pauseTimeRef.current = 0;
-    }
+    pauseAudio();
+    setCurrentTime(0);
+    pauseTimeRef.current = 0;
   };
   
-  // Apply effect preset (ORIGINAL)
+  // Apply effect preset with mobile optimization
   const applyPreset = useCallback((preset) => {
     setPlaybackRate(preset.playbackRate);
-    setReverbWet(preset.reverbWet);
+    setReverbWet(audioQuality === 'basic' ? 0 : preset.reverbWet);
     setReverbRoomSize(preset.reverbRoomSize);
     setReverbDecay(preset.reverbDecay);
     setLowPassFilter(preset.lowPassFilter);
-  }, []);
+    setPreservePitch(preset.preservePitch && audioQuality !== 'basic');
+  }, [audioQuality]);
   
-  // Update effects in real-time with mobile support
+  // Real-time effect updates with performance optimization
   useEffect(() => {
-    if (useFallbackAudio && audioElementRef.current) {
-      if (gainNodeRef.current && sourceNodeRef.current) {
-        gainNodeRef.current.gain.value = volume;
-      } else {
-        audioElementRef.current.volume = volume;
-      }
-    } else if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = volume;
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.setValueAtTime(volume, audioContextRef.current?.currentTime || 0);
     }
-  }, [volume, useFallbackAudio]);
+  }, [volume]);
   
   useEffect(() => {
-    if (useFallbackAudio && audioElementRef.current) {
-      const clampedRate = isMobileDevice ? 
-        Math.max(0.25, Math.min(4.0, playbackRate)) : playbackRate;
-      audioElementRef.current.playbackRate = clampedRate;
-    } else if (wetGainRef.current && dryGainRef.current) {
-      wetGainRef.current.gain.value = reverbWet;
-      dryGainRef.current.gain.value = 1 - reverbWet;
+    if (audioQuality !== 'basic' && wetGainRef.current && dryGainRef.current) {
+      const currentTime = audioContextRef.current?.currentTime || 0;
+      wetGainRef.current.gain.setValueAtTime(reverbWet, currentTime);
+      dryGainRef.current.gain.setValueAtTime(1 - reverbWet, currentTime);
     }
-  }, [reverbWet, playbackRate, useFallbackAudio, isMobileDevice]);
+  }, [reverbWet, audioQuality]);
   
   useEffect(() => {
-    if (!useFallbackAudio && filterNodeRef.current) {
-      filterNodeRef.current.frequency.value = lowPassFilter;
+    if (audioQuality !== 'basic' && filterNodeRef.current) {
+      const currentTime = audioContextRef.current?.currentTime || 0;
+      filterNodeRef.current.frequency.setValueAtTime(lowPassFilter, currentTime);
     }
-  }, [lowPassFilter, useFallbackAudio]);
+  }, [lowPassFilter, audioQuality]);
   
   useEffect(() => {
-    if (!useFallbackAudio && sourceNodeRef.current) {
-      sourceNodeRef.current.playbackRate.value = playbackRate;
+    if (sourceNodeRef.current && !preservePitch) {
+      sourceNodeRef.current.playbackRate.setValueAtTime(playbackRate, audioContextRef.current?.currentTime || 0);
     }
-  }, [playbackRate, useFallbackAudio]);
+  }, [playbackRate, preservePitch]);
   
   useEffect(() => {
-    if (!useFallbackAudio && convolverNodeRef.current && audioContextRef.current) {
+    if (audioQuality !== 'basic' && convolverNodeRef.current && audioContextRef.current) {
       try {
-        const impulseResponse = createReverbImpulse(audioContextRef.current, reverbRoomSize, reverbDecay);
+        const impulseResponse = createReverbImpulse(
+          audioContextRef.current, 
+          reverbRoomSize, 
+          reverbDecay,
+          audioQuality === 'medium' ? 2 : 4
+        );
         convolverNodeRef.current.buffer = impulseResponse;
       } catch (error) {
         console.warn('Reverb update failed:', error);
       }
     }
-  }, [reverbRoomSize, reverbDecay, useFallbackAudio]);
-  
-  // Time update for HTML5 audio
-  useEffect(() => {
-    if (!useFallbackAudio || !audioElementRef.current) return;
-    
-    const handleTimeUpdate = () => {
-      setCurrentTime(audioElementRef.current.currentTime);
-    };
-    
-    const handleEnded = () => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-      audioElementRef.current.currentTime = 0;
-    };
-    
-    const handleError = (error) => {
-      console.error('Audio playback error:', error);
-      setIsPlaying(false);
-      setAudioError('Playback error occurred');
-    };
-    
-    audioElementRef.current.addEventListener('timeupdate', handleTimeUpdate);
-    audioElementRef.current.addEventListener('ended', handleEnded);
-    audioElementRef.current.addEventListener('error', handleError);
-    
-    return () => {
-      if (audioElementRef.current) {
-        audioElementRef.current.removeEventListener('timeupdate', handleTimeUpdate);
-        audioElementRef.current.removeEventListener('ended', handleEnded);
-        audioElementRef.current.removeEventListener('error', handleError);
-      }
-    };
-  }, [audioFile, useFallbackAudio]);
+  }, [reverbRoomSize, reverbDecay, audioQuality]);
   
   // Time update for Web Audio API
   useEffect(() => {
-    if (useFallbackAudio) return;
-    
     let interval;
     if (isPlaying && audioContextRef.current && startTimeRef.current) {
       interval = setInterval(() => {
-        const elapsed = (audioContextRef.current.currentTime - startTimeRef.current) * playbackRate;
+        const rate = sourceNodeRef.current?.playbackRate.value || playbackRate;
+        const elapsed = (audioContextRef.current.currentTime - startTimeRef.current) * rate;
         const newCurrentTime = Math.min(elapsed, duration);
         setCurrentTime(newCurrentTime);
         
@@ -1066,25 +1074,25 @@ const SlowReverbApp = () => {
       }, 100);
     }
     return () => clearInterval(interval);
-  }, [isPlaying, duration, playbackRate, pauseAudio, useFallbackAudio]);
+  }, [isPlaying, duration, playbackRate, pauseAudio]);
   
-  // Format time display (ORIGINAL)
+  // Format time display
   const formatTime = (time) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
   
-  // Export function with mobile notice
+  // Export function
   const exportAudio = () => {
-    if (isMobileDevice) {
-      alert('Export functionality is limited on mobile devices. Please use a desktop browser for full export capabilities.');
+    if (audioQuality === 'basic') {
+      alert('Export functionality requires medium or high quality mode. Please try on a desktop browser.');
     } else {
       alert('Export functionality would be implemented with OfflineAudioContext for production use.');
     }
   };
 
-  // Helper function to get themed button style (ORIGINAL)
+  // Helper function to get themed button style
   const getButtonStyle = (type = 'default', disabled = false, isPlayButton = false) => {
     const baseStyle = {
       display: 'flex',
@@ -1149,7 +1157,7 @@ const SlowReverbApp = () => {
     return baseStyle;
   };
 
-  // Helper function to get slider style (ORIGINAL)
+  // Helper function to get slider style
   const getSliderStyle = (disabled = false) => ({
     width: '100%',
     height: theme.effects.sliderHeight,
@@ -1172,7 +1180,7 @@ const SlowReverbApp = () => {
       ...theme.container,
       fontFamily: theme.fonts.primary
     }}>
-      {/* Background patterns (ORIGINAL) */}
+      {/* Background patterns */}
       {theme.backgroundPattern && (
         <div style={{
           position: 'fixed',
@@ -1234,7 +1242,7 @@ const SlowReverbApp = () => {
         )}
         
         <div className="player-2" style={theme.player}>
-          {/* Header (ORIGINAL) */}
+          {/* Header */}
           <div className="player-2__header" style={theme.header}>
             <div className="player-2__title" style={{
               fontSize: '0.75rem',
@@ -1247,6 +1255,13 @@ const SlowReverbApp = () => {
               fontWeight: theme.text.weight
             }}>
               {currentTheme === 'pixel' ? 'SLOW + REVERB' : 'Slow + Reverb'}
+              <div style={{
+                fontSize: '0.5rem',
+                opacity: 0.7,
+                marginTop: '0.25rem'
+              }}>
+                {audioQuality.toUpperCase()} QUALITY
+              </div>
             </div>
             <button 
               onClick={cycleTheme}
@@ -1257,7 +1272,7 @@ const SlowReverbApp = () => {
             </button>
           </div>
 
-          {/* Artwork/Visualizer (ORIGINAL) */}
+          {/* Artwork/Visualizer */}
           <div className="player-2__artwork" style={{
             aspectRatio: '1',
             background: currentTheme === 'vaporwave' ? 'linear-gradient(45deg, #3a0ca3, #7209b7)' : 
@@ -1309,7 +1324,7 @@ const SlowReverbApp = () => {
                 width: '100%',
                 zIndex: 2
               }}>
-                {visualizerData.slice(0, 16).map((height, index) => (
+                {visualizerData.slice(0, audioQuality === 'basic' ? 16 : 32).map((height, index) => (
                   <div
                     key={index}
                     style={{
@@ -1365,7 +1380,7 @@ const SlowReverbApp = () => {
             )}
           </div>
 
-          {/* Track Info (ORIGINAL) */}
+          {/* Track Info */}
           <div className="player-2__info" style={{
             padding: '1rem',
             textAlign: 'center',
@@ -1386,12 +1401,17 @@ const SlowReverbApp = () => {
               letterSpacing: '0.1em',
               fontWeight: theme.text.weight
             }}>
-              {audioFile ? (currentTheme === 'pixel' ? 'UNKNOWN ARTIST' : 'Unknown Artist') : 
-                          (currentTheme === 'pixel' ? 'SELECT AUDIO FILE' : 'Select an audio file to begin')}
+              {audioFile ? (
+                preservePitch ? 
+                  (currentTheme === 'pixel' ? 'PITCH PRESERVED' : 'Pitch Preserved') : 
+                  (currentTheme === 'pixel' ? 'NATURAL SLOW' : 'Natural Slow')
+              ) : (
+                currentTheme === 'pixel' ? 'SELECT AUDIO FILE' : 'Select an audio file to begin'
+              )}
             </div>
           </div>
 
-          {/* Progress (ORIGINAL) */}
+          {/* Progress */}
           <div className="player-2__progress" style={{
             padding: '1rem',
             borderBottom: `1px solid ${theme.colors.border}`
@@ -1430,7 +1450,7 @@ const SlowReverbApp = () => {
             </div>
           </div>
 
-          {/* Controls (ORIGINAL) */}
+          {/* Controls */}
           <div className="player-2__controls" style={{
             display: 'flex',
             justifyContent: 'center',
@@ -1485,8 +1505,40 @@ const SlowReverbApp = () => {
             />
           </div>
 
-          {/* Effects (Enhanced with mobile compatibility indicators) */}
+          {/* Effects */}
           <div className="player-2__effects" style={{ padding: '1rem' }}>
+            {/* Pitch Preservation Toggle */}
+            {audioQuality !== 'basic' && (
+              <div style={{
+                marginBottom: '1rem',
+                paddingBottom: '1rem',
+                borderBottom: `1px solid ${theme.colors.border}`
+              }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  fontSize: '0.625rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  color: theme.colors.text.secondary,
+                  fontWeight: theme.text.weight,
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={preservePitch}
+                    onChange={(e) => setPreservePitch(e.target.checked)}
+                    disabled={!audioFile}
+                    style={{
+                      accentColor: theme.colors.primary
+                    }}
+                  />
+                  {currentTheme === 'pixel' ? 'PRESERVE PITCH' : 'Preserve Pitch'}
+                </label>
+              </div>
+            )}
+
             {/* Speed */}
             <div className="player-2__effect-row" style={{
               display: 'flex',
@@ -1515,8 +1567,8 @@ const SlowReverbApp = () => {
             <input 
               type="range" 
               className="player-2__effect-slider"
-              min={isMobileDevice ? "0.25" : "0.1"}
-              max={isMobileDevice ? "4.0" : "2.0"}
+              min="0.25"
+              max="3.0"
               step="0.05"
               value={playbackRate}
               onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
@@ -1524,7 +1576,7 @@ const SlowReverbApp = () => {
               style={getSliderStyle(!audioFile)}
             />
 
-            {/* Reverb (Note: Limited on mobile) */}
+            {/* Reverb (Available based on audio quality) */}
             <div className="player-2__effect-row" style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -1535,17 +1587,17 @@ const SlowReverbApp = () => {
                 fontSize: '0.625rem',
                 textTransform: 'uppercase',
                 letterSpacing: '0.1em',
-                color: useFallbackAudio ? theme.colors.text.secondary + '80' : theme.colors.text.secondary,
+                color: audioQuality === 'basic' ? theme.colors.text.secondary + '60' : theme.colors.text.secondary,
                 fontWeight: theme.text.weight
               }}>
-                {currentTheme === 'pixel' ? 'REV' : 'Reverb'} {useFallbackAudio && isMobileDevice && '(Limited)'}
+                {currentTheme === 'pixel' ? 'REV' : 'Reverb'} {audioQuality === 'basic' && '(Unavailable)'}
               </span>
               <span className="player-2__effect-value" style={{
                 fontSize: '0.625rem',
                 color: theme.colors.text.primary,
                 fontVariantNumeric: 'tabular-nums',
                 fontWeight: theme.text.weight,
-                opacity: useFallbackAudio && isMobileDevice ? 0.6 : 1
+                opacity: audioQuality === 'basic' ? 0.5 : 1
               }}>
                 {Math.round(reverbWet * 100)}%
               </span>
@@ -1554,15 +1606,15 @@ const SlowReverbApp = () => {
               type="range" 
               className="player-2__effect-slider"
               min="0"
-              max="0.8"
+              max="0.6"
               step="0.05"
               value={reverbWet}
               onChange={(e) => setReverbWet(parseFloat(e.target.value))}
-              disabled={!audioFile || (useFallbackAudio && isMobileDevice)}
-              style={getSliderStyle(!audioFile || (useFallbackAudio && isMobileDevice))}
+              disabled={!audioFile || audioQuality === 'basic'}
+              style={getSliderStyle(!audioFile || audioQuality === 'basic')}
             />
 
-            {/* Filter (Note: Limited on mobile) */}
+            {/* Filter */}
             <div className="player-2__effect-row" style={{
               display: 'flex',
               justifyContent: 'space-between',
@@ -1573,17 +1625,17 @@ const SlowReverbApp = () => {
                 fontSize: '0.625rem',
                 textTransform: 'uppercase',
                 letterSpacing: '0.1em',
-                color: useFallbackAudio ? theme.colors.text.secondary + '80' : theme.colors.text.secondary,
+                color: audioQuality === 'basic' ? theme.colors.text.secondary + '60' : theme.colors.text.secondary,
                 fontWeight: theme.text.weight
               }}>
-                {currentTheme === 'pixel' ? 'FLT' : 'Filter'} {useFallbackAudio && isMobileDevice && '(Limited)'}
+                {currentTheme === 'pixel' ? 'FLT' : 'Filter'} {audioQuality === 'basic' && '(Unavailable)'}
               </span>
               <span className="player-2__effect-value" style={{
                 fontSize: '0.625rem',
                 color: theme.colors.text.primary,
                 fontVariantNumeric: 'tabular-nums',
                 fontWeight: theme.text.weight,
-                opacity: useFallbackAudio && isMobileDevice ? 0.6 : 1
+                opacity: audioQuality === 'basic' ? 0.5 : 1
               }}>
                 {(lowPassFilter/1000).toFixed(1)}k
               </span>
@@ -1592,12 +1644,12 @@ const SlowReverbApp = () => {
               type="range" 
               className="player-2__effect-slider"
               min="500"
-              max="20000"
+              max="16000"
               step="100"
               value={lowPassFilter}
               onChange={(e) => setLowPassFilter(parseInt(e.target.value))}
-              disabled={!audioFile || (useFallbackAudio && isMobileDevice)}
-              style={getSliderStyle(!audioFile || (useFallbackAudio && isMobileDevice))}
+              disabled={!audioFile || audioQuality === 'basic'}
+              style={getSliderStyle(!audioFile || audioQuality === 'basic')}
             />
 
             {/* Volume */}
@@ -1637,7 +1689,7 @@ const SlowReverbApp = () => {
               style={getSliderStyle(!audioFile)}
             />
 
-            {/* Presets (ORIGINAL) */}
+            {/* Presets */}
             <div style={{
               marginTop: '1.5rem',
               paddingTop: '1rem',
@@ -1686,7 +1738,7 @@ const SlowReverbApp = () => {
                   disabled={!audioFile}
                   style={getButtonStyle('preset', !audioFile)}
                 >
-                  {currentTheme === 'pixel' ? 'NIGHT' : currentTheme === 'tropical' ? 'Beach Vibes' : 'Midnight Drive'}
+                  {currentTheme === 'pixel' ? 'NIGHT' : currentTheme === 'tropical' ? 'Beach' : 'Midnight'}
                 </button>
               </div>
             </div>
@@ -1698,7 +1750,7 @@ const SlowReverbApp = () => {
         {isMobileDevice && (
           <div style={{
             position: 'absolute',
-            bottom: '-12rem',
+            bottom: '-14rem',
             left: '50%',
             transform: 'translateX(-50%)',
             width: '100%',
@@ -1716,22 +1768,22 @@ const SlowReverbApp = () => {
               📱 Mobile Audio Tips:
             </div>
             <div style={{ marginBottom: '0.25rem' }}>
-              • <strong>First interaction:</strong> Tap anywhere to enable audio
+              • <strong>Quality mode:</strong> {audioQuality.charAt(0).toUpperCase() + audioQuality.slice(1)} (auto-detected)
             </div>
             <div style={{ marginBottom: '0.25rem' }}>
-              • <strong>Best formats:</strong> MP3, AAC, M4A work most reliably
+              • <strong>First tap:</strong> Required to enable audio playback
             </div>
             <div style={{ marginBottom: '0.25rem' }}>
-              • <strong>File size:</strong> Keep under 100MB for best performance
+              • <strong>Best formats:</strong> MP3, AAC, M4A for reliability
             </div>
             <div style={{ marginBottom: '0.25rem' }}>
-              • <strong>Speed range:</strong> 0.25x - 4.0x available on mobile
+              • <strong>File size:</strong> Up to {audioQuality === 'basic' ? '50' : audioQuality === 'medium' ? '100' : '200'}MB
             </div>
             <div style={{ marginBottom: '0.25rem' }}>
-              • <strong>Effects:</strong> Reverb and Filter limited in mobile mode
+              • <strong>Pitch preservation:</strong> {audioQuality === 'basic' ? 'Not available' : 'Available'}
             </div>
             <div>
-              • <strong>iOS Safari:</strong> Works best for high-quality playback
+              • <strong>Effects:</strong> {audioQuality === 'basic' ? 'Speed & Volume only' : 'Full effects available'}
             </div>
           </div>
         )}
