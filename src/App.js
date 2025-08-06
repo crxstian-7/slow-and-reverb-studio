@@ -1499,7 +1499,8 @@ const SlowReverbApp = () => {
             <input
               ref={fileInputRef}
               type="file"
-              accept="audio/mp3,audio/mp4,audio/m4a,audio/wav,audio/aac,audio/ogg,audio/webm,audio/*"
+              accept=".mp3,.m4a,.wav,.aac,.ogg,.flac"
+              capture={false}
               onChange={handleFileUpload}
               style={{ display: 'none' }}
             />
