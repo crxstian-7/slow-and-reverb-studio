@@ -1,13 +1,13 @@
 {
   "files": {
     "main.css": "/slow-reverb-studio/static/css/main.93a0497a.css",
-    "main.js": "/slow-reverb-studio/static/js/main.69d41537.js",
+    "main.js": "/slow-reverb-studio/static/js/main.47e9378f.js",
     "index.html": "/slow-reverb-studio/index.html",
     "main.93a0497a.css.map": "/slow-reverb-studio/static/css/main.93a0497a.css.map",
-    "main.69d41537.js.map": "/slow-reverb-studio/static/js/main.69d41537.js.map"
+    "main.47e9378f.js.map": "/slow-reverb-studio/static/js/main.47e9378f.js.map"
   },
   "entrypoints": [
     "static/css/main.93a0497a.css",
-    "static/js/main.69d41537.js"
+    "static/js/main.47e9378f.js"
   ]
 }
